@@ -1,11 +1,18 @@
-"""缺陷登记接口：维护设备缺陷，覆盖确认定级、提交闭环、挂起缺陷等动作。"""
+"""缺陷登记接口：维护设备缺陷，覆盖确认定级、提交闭环、挂起缺陷与批量确认定级。"""
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
+from app.schemas import (
+    ActionResult,
+    BatchGradePayload,
+    BatchGradeResult,
+    EntryPayload,
+    GradeSuggestPayload,
+    PageResult,
+)
 from app.services.defect import DefectService
 
 router = APIRouter(prefix="/api/defect", tags=["缺陷登记"])
@@ -14,6 +21,36 @@ service = DefectService()
 
 LIST_FIELDS = ["缺陷编号", "所属设备", "缺陷类型", "严重等级", "发现时间", "发现人", "处理期限", "缺陷状态"]
 STATUSES = ["待定级", "已定级", "处理中", "已闭环", "已挂起"]
+
+
+@router.get("/stats")
+def defect_stats() -> dict[str, Any]:
+    """缺陷统计：待定级、处理中与超期未闭环数量，随定级动作实时变化。"""
+    return {"items": service.stats()}
+
+
+@router.post("/grade-suggestions")
+def grade_suggestions(payload: GradeSuggestPayload) -> dict[str, Any]:
+    """按所属设备与缺陷类型，为一批缺陷编号给出严重等级与处理期限的建议值。"""
+    return {"items": service.grade_suggestions(payload.缺陷编号列表)}
+
+
+@router.post("/batch-grade", response_model=BatchGradeResult)
+def batch_grade(payload: BatchGradePayload) -> BatchGradeResult:
+    """批量确认定级：逐条处理、逐条按缺陷编号回执；成功的立即生效不回退，失败的给出原因。"""
+    if not payload.items:
+        return BatchGradeResult(ok=False, message="未选择需要定级的缺陷", receipts=[])
+    receipts = service.batch_grade([item.model_dump() for item in payload.items])
+    failed = sum(1 for receipt in receipts if not receipt["ok"])
+    message = f"批量定级完成：成功 {len(receipts) - failed} 条，失败 {failed} 条"
+    return BatchGradeResult(ok=failed == 0, message=message, receipts=receipts)
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出缺陷登记清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "defect", "total": total, "items": items}
 
 
 @router.get("", response_model=PageResult[dict])
@@ -56,10 +93,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出缺陷登记清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "defect", "total": total, "items": items}
