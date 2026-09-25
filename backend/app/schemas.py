@@ -28,6 +28,39 @@ class EntryPayload(BaseModel):
     remark: str | None = None
 
 
+class GradeItem(BaseModel):
+    """批量定级里单条缺陷的定级意见。"""
+
+    缺陷编号: str = ""
+    严重等级: str = ""
+    处理期限: str = ""
+    定级依据: str | None = None
+
+
+class GradeReceipt(BaseModel):
+    """批量定级按缺陷编号逐条返回的回执；repeated 表示此前已定级、本次跳过。"""
+
+    缺陷编号: str
+    ok: bool
+    repeated: bool = False
+    message: str
+    entry: dict[str, Any] | None = None
+
+
+class BatchGradePayload(BaseModel):
+    items: list[GradeItem] = Field(default_factory=list)
+
+
+class BatchGradeResult(BaseModel):
+    ok: bool
+    message: str
+    receipts: list[GradeReceipt] = Field(default_factory=list)
+
+
+class SuggestPayload(BaseModel):
+    codes: list[str] = Field(default_factory=list)
+
+
 
 class StationEntry(BaseModel):
     """电站档案明细结构。"""
